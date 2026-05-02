@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>效期管家 | 進貨與領用管理</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">inventory control</p>
+      <h1>效期管家</h1>
+      <p class="header-subtitle">進貨、效期、庫存與領用工作台</p>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <section class="summary-grid" aria-label="庫存摘要">
+      <article class="metric">
+        <span class="metric-label">庫存品項</span>
+        <strong id="totalItems">0</strong>
+        <small id="totalUnits">總數量 0</small>
+      </article>
+      <article class="metric warn">
+        <span class="metric-label">30 天內到期</span>
+        <strong id="soonCount">0</strong>
+        <small>優先領用</small>
+      </article>
+      <article class="metric danger">
+        <span class="metric-label">已過期</span>
+        <strong id="expiredCount">0</strong>
+        <small>需處理</small>
+      </article>
+      <article class="metric low">
+        <span class="metric-label">低庫存</span>
+        <strong id="lowCount">0</strong>
+        <small>低於安全量</small>
+      </article>
+    </section>
+
+    <section class="workspace">
+      <aside class="side-panel" aria-label="快速操作">
+        <div class="panel-head">
+          <h2>操作</h2>
+          <span>quick entry</span>
+        </div>
+
+        <form id="receiveForm" class="form-stack">
+          <h3>進貨登錄</h3>
+          <div class="quick-panel" aria-label="快速輸入">
+            <label>
+              常用品項
+              <select id="quickItemSelect">
+                <option value="">選擇後自動帶入</option>
+              </select>
+            </label>
+            <div class="quick-actions">
+              <button class="ghost-btn compact" id="repeatLastBtn" type="button">再次進貨</button>
+              <button class="ghost-btn compact" id="scanCodeBtn" type="button">掃碼</button>
+              <button class="ghost-btn compact" id="voiceInputBtn" type="button">語音</button>
+            </div>
+            <p class="form-note" id="quickInputHint">可選常用品項、掃條碼，或說「口罩 20 效期 5月20 庫房 B」。</p>
+            <div class="barcode-panel" id="barcodePanel" hidden>
+              <video id="barcodeVideo" playsinline muted></video>
+              <div class="barcode-actions">
+                <input id="barcodeManual" type="text" placeholder="手動輸入條碼或 QR 內容" />
+                <button class="dark-btn compact" id="applyBarcodeBtn" type="button">套用</button>
+                <button class="text-btn compact" id="closeScanBtn" type="button">關閉</button>
+              </div>
+            </div>
+          </div>
+          <label>
+            品項名稱
+            <input id="itemName" name="itemName" type="text" list="itemNames" placeholder="例：營養品" required />
+          </label>
+          <datalist id="itemNames"></datalist>
+          <div class="two-col">
+            <label>
+              類別
+              <select id="category" name="category">
+                <option>醫材</option>
+                <option>食品</option>
+                <option>清潔用品</option>
+                <option>活動用品</option>
+                <option>行政用品</option>
+              </select>
+            </label>
+            <label>
+              數量
+              <input id="quantity" name="quantity" type="number" min="1" step="1" required />
+            </label>
+          </div>
+          <div class="two-col">
+            <label>
+              安全庫存
+              <input id="safetyStock" name="safetyStock" type="number" min="0" step="1" value="10" required />
+            </label>
+            <label>
+              有效期限
+              <input id="expiryDate" name="expiryDate" type="date" required />
+            </label>
+          </div>
+          <div class="date-shortcuts" aria-label="效期快捷">
+            <button type="button" class="chip-btn" data-expiry-shortcut="7">+7天</button>
+            <button type="button" class="chip-btn" data-expiry-shortcut="14">+14天</button>
+            <button type="button" class="chip-btn" data-expiry-shortcut="30">+30天</button>
+            <button type="button" class="chip-btn" data-expiry-shortcut="90">+90天</button>
+            <button type="button" class="chip-btn" data-expiry-shortcut="month-end">月底</button>
+          </div>
+          <label>
+            位置
+            <input id="location" name="location" type="text" placeholder="庫房 A" required />
+          </label>
+          <button class="primary-btn full" type="submit">新增進貨</button>
+        </form>
+
+        <form id="issueForm" class="form-stack">
+          <h3>領用品項</h3>
+          <label>
+            品項
+            <select id="issueItem" name="issueItem" required></select>
+          </label>
+          <label>
+            領用數量
+            <input id="issueQty" name="issueQty" type="number" min="1" step="1" required />
+          </label>
+          <button class="dark-btn full" type="submit">扣除數量</button>
+          <p class="form-note">輸入數量後會直接從最早到期的庫存開始扣。</p>
+        </form>
+      </aside>
+
+      <section class="content-panel">
+        <div class="toolbar">
+          <div>
+            <h2>目前庫存</h2>
+            <p id="stockHint">依效期排序</p>
+          </div>
+          <div class="filters" role="group" aria-label="庫存篩選">
+            <button class="filter-btn active" type="button" data-filter="all">全部</button>
+            <button class="filter-btn" type="button" data-filter="soon">即期</button>
+            <button class="filter-btn" type="button" data-filter="low">低庫存</button>
+            <button class="filter-btn" type="button" data-filter="expired">過期</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>品項</th>
+                <th>總量</th>
+                <th>最早到期</th>
+                <th>位置</th>
+                <th>狀態</th>
+              </tr>
+            </thead>
+            <tbody id="stockTable"></tbody>
+          </table>
+        </div>
+
+        <div class="split-section">
+          <section>
+            <div class="section-title">
+              <h2>效期庫存</h2>
+              <span id="batchCount">0 筆</span>
+            </div>
+            <div id="batchList" class="batch-list"></div>
+          </section>
+
+          <section>
+            <div class="section-title">
+              <h2>異動紀錄</h2>
+              <button class="text-btn" id="clearDemoBtn" type="button">重設示範資料</button>
+            </div>
+            <div id="movementList" class="movement-list"></div>
+          </section>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
