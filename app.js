@@ -527,21 +527,38 @@ function parseVoiceInput(text) {
   const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
   if (!cleaned) return;
 
-  const quantityMatch = cleaned.match(/(\d+)\s*(盒|瓶|包|個|箱|袋|片|組|支|本)?/);
   const expiryDate = parseDateText(cleaned);
   const location = extractLocation(cleaned);
   const knownItem = getCommonItems().find(item => cleaned.includes(item.itemName));
   const itemName = knownItem?.itemName || cleaned.split(/\d/)[0].replace(/效期|有效期限|進貨|新增/g, '').trim();
+  const quantity = extractVoiceQuantity(cleaned, itemName);
 
   applyItemTemplate(knownItem || { itemName });
   if (itemName) setField('itemName', itemName);
-  if (quantityMatch) {
-    setField('quantity', quantityMatch[1]);
-  }
+  if (quantity) setField('quantity', quantity);
   if (expiryDate) setField('expiryDate', expiryDate);
   if (location) setField('location', location);
 
   showToast(`語音已填入：${cleaned}`);
+}
+
+function extractVoiceQuantity(text, itemName) {
+  const withoutDates = text
+    .replace(/\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b/g, ' ')
+    .replace(/\d{1,2}\s*月\s*\d{1,2}\s*(?:日|號)?/g, ' ')
+    .replace(/\b\d{4}\b/g, ' ');
+
+  if (itemName && withoutDates.includes(itemName)) {
+    const afterItem = withoutDates.slice(withoutDates.indexOf(itemName) + itemName.length);
+    const afterItemMatch = afterItem.match(/(\d+)/);
+    if (afterItemMatch) return afterItemMatch[1];
+  }
+
+  const explicit = withoutDates.match(/(?:數量|進貨|新增|扣除|領用)\s*(\d+)/);
+  if (explicit) return explicit[1];
+
+  const fallback = withoutDates.match(/(\d+)/);
+  return fallback ? fallback[1] : '';
 }
 
 function extractLocation(text) {
@@ -611,12 +628,27 @@ function handleReceive(event) {
     receivedAt: todayISO(),
   };
 
-  state.batches.push(batch);
+  const existingBatch = state.batches.find(item =>
+    item.itemName === batch.itemName &&
+    item.expiryDate === batch.expiryDate &&
+    item.location === batch.location &&
+    item.quantity > 0
+  );
+
+  if (existingBatch) {
+    existingBatch.quantity += batch.quantity;
+    existingBatch.category = batch.category;
+    existingBatch.safetyStock = Math.max(Number(existingBatch.safetyStock || 0), batch.safetyStock);
+    existingBatch.receivedAt = todayISO();
+  } else {
+    state.batches.push(batch);
+  }
+
   addMovement({
     type: '進貨',
     itemName: batch.itemName,
     quantity: batch.quantity,
-    reason: batch.location,
+    reason: existingBatch ? `${batch.location} · 已合併` : batch.location,
   });
 
   saveState();
@@ -624,7 +656,7 @@ function handleReceive(event) {
   document.getElementById('safetyStock').value = 10;
   els.quickItemSelect.value = '';
   render();
-  showToast('已新增進貨');
+  showToast(existingBatch ? '已合併到現有庫存' : '已新增進貨');
 }
 
 function handleIssue(event) {
@@ -708,12 +740,6 @@ function bindEvents() {
     });
   });
 
-  document.getElementById('clearDemoBtn').addEventListener('click', () => {
-    state = structuredClone(demoState);
-    saveState();
-    render();
-    showToast('已重設示範資料');
-  });
 }
 
 bindEvents();
